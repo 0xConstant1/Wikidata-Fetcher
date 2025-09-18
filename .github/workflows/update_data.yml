@@ -25,6 +25,14 @@ jobs:
       - name: Fetch Data from Wikidata
         run: python fetch_wikidata.py
 
+      - name: Verify generated files and Git status
+        run: |
+          echo "Listing all files in the repository..."
+          ls -R
+          echo ""
+          echo "Checking Git status before commit..."
+          git status
+
       - name: Commit and Push Changes
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
