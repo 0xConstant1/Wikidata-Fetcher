@@ -12,23 +12,46 @@ USER_AGENT = "WikidataFetcher/1.0 (https://github.com/0xConstant1/Wikidata-Fetch
 
 # --- Query Definitions ---
 MOVIE_QUERY = """
-SELECT ?imdbId ?tvdbId ?tmdbId WHERE {
-  VALUES ?type {
-    wd:Q11424 wd:Q24856 wd:Q506240 wd:Q844580 wd:Q226730 wd:Q202866 wd:Q1261214
+SELECT ?imdbId ?tmdbId ?tvdbId
+WITH {
+  SELECT ?item WHERE {
+    VALUES ?type {
+      wd:Q11424
+      wd:Q1261214
+      wd:Q202866
+      wd:Q506240
+      wd:Q24856
+      wd:Q844580
+    }
+    ?item wdt:P31/wdt:P279* ?type.
   }
-  ?item wdt:P31/wdt:P279* ?type.
+} AS %typed_items
+WHERE {
+  INCLUDE %typed_items.
   ?item wdt:P345 ?imdbId.
-  OPTIONAL { ?item wdt:P12196 ?tvdbId. }
   OPTIONAL { ?item wdt:P4947 ?tmdbId. }
+  OPTIONAL { ?item wdt:P12196 ?tvdbId. }
 }
 """
 
 TV_QUERY = """
-SELECT ?imdbId ?tvdbId ?tmdbId ?tvmazeId WHERE {
-  VALUES ?type {
-    wd:Q5398426 wd:Q581714 wd:Q11086742 wd:Q3464665 wd:Q21191270 wd:Q15416 wd:Q653916 wd:Q7697093
+SELECT ?imdbId ?tvdbId ?tmdbId ?tvmazeId
+WITH {
+  SELECT ?series WHERE {
+    VALUES ?type {
+      wd:Q5398426  # television series
+      wd:Q581714   # animated series
+      wd:Q3464665  # television series season
+      wd:Q21191270 # television series episode
+      wd:Q15416    # television program
+      wd:Q653916   # television pilot
+      wd:Q7697093  # television play
+    }
+    ?series wdt:P31 ?type.
   }
-  ?series wdt:P31/wdt:P279* ?type.
+} AS %tv_items
+WHERE {
+  INCLUDE %tv_items.
   ?series wdt:P345 ?imdbId.
   OPTIONAL { ?series wdt:P4835 ?tvdbId. }
   OPTIONAL { ?series wdt:P4983 ?tmdbId. }
@@ -71,7 +94,8 @@ def main():
         logging.info(f"--- Starting task: {task_name} ---")
         
         try:
-            results = client.query(task["query"])
+            # MODIFICATION: We now pass use_post=True to the query method.
+            results = client.query(task["query"], use_post=True)
             
             if results and 'results' in results and 'bindings' in results['results']:
                 num_results = len(results['results']['bindings'])

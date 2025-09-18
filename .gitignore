@@ -1,0 +1,76 @@
+# ===================================================================
+# Python bytecode and cache files
+# These are generated automatically by Python and should not be tracked.
+# ===================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+
+
+# ===================================================================
+# Virtual Environment
+# The 'venv' directory contains all your installed packages.
+# It can be very large and is specific to your machine.
+# Others should create their own by running 'pip install -r requirements.txt'.
+# ===================================================================
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+
+# ===================================================================
+# Local Data Files (IMPORTANT)
+# The data/ directory is where your script's output is saved.
+# We want to commit the FINAL json files from the GitHub Action, but
+# we should ignore any local test runs or other temporary data.
+# The `!` negates a rule, so `!data/*.json` means "Do NOT ignore .json files
+# in the data folder". This is a common pattern for committing generated data.
+# ===================================================================
+data/*
+!data/*.json
+!data/.gitkeep
+
+
+# ===================================================================
+# IDE and Editor specific files
+# These are configuration files created by code editors like VS Code,
+# PyCharm, Sublime Text, etc. They are specific to your setup.
+# ===================================================================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+
+# ===================================================================
+# Operating System files
+# Ignore files created by macOS, Windows, or Linux.
+# ===================================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+
+# ===================================================================
+# Distribution / packaging
+# Ignore files related to building Python packages.
+# ===================================================================
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
