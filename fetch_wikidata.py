@@ -57,7 +57,7 @@ def main():
     Runs all predefined Wikidata queries and saves the results.
     """
     logging.info("Initializing Wikidata client...")
-    client = WikidataClientImproved(user_agent=USER_AGENT)
+    client = WikidataFetcher(user_agent=USER_AGENT)
     
     # Ensure the output directory exists
     output_dir = os.path.dirname(QUERIES_TO_RUN[0]["output_file"])
