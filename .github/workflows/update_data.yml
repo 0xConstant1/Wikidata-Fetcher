@@ -28,8 +28,8 @@ jobs:
       - name: Commit and Push Changes
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
-          commit_message: "chore: Update Wikidata movie and TV mappings"
-          file_pattern: "data/movie_mappings.json data/tv_mappings.json" 
+          commit_message: "chore: Update Wikidata movie and TV mappings (CSV)"
+          file_pattern: "data/movie_mappings.csv data/tv_mappings.csv" 
           commit_user_name: "Wikidata Bot [GH Action]"
           commit_user_email: "actions@github.com"
           commit_author: "Wikidata Bot <actions@github.com>"

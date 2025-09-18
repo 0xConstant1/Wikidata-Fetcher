@@ -1,15 +1,12 @@
-# Save this code in a file named client.py
 
 import time
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
-# It's good practice to use logging instead of prints for a library/client
-# This will be configured by the main script that imports this class.
 log = logging.getLogger(__name__)
 
 
@@ -42,8 +39,8 @@ class WikidataFetcher:
                              "See https://meta.wikimedia.org/wiki/User-Agent_policy")
 
         self.endpoint = endpoint
+        # Base headers, Accept will be overridden per-request
         self.headers = {
-            "Accept": "application/json",
             "User-Agent": user_agent
         }
         self.max_429_retries = max_429_retries
@@ -59,35 +56,53 @@ class WikidataFetcher:
         self.session = requests.Session()
         self.session.mount("https://", adapter)
 
-    def query(self, sparql: str, use_post: bool = False, timeout: int = 60) -> Optional[Dict[str, Any]]:
+    def query(
+        self,
+        sparql: str,
+        use_post: bool = False,
+        timeout: int = 70,
+        format: str = 'json'
+    ) -> Union[Optional[Dict[str, Any]], str]:
         """
         Executes a SPARQL query and handles rate limiting.
 
         Args:
             sparql (str): The SPARQL query string.
-            use_post (bool): If True, forces the use of POST. Automatically used for long queries.
+            use_post (bool): If True, forces the use of POST.
             timeout (int): The request timeout in seconds.
+            format (str): The desired response format ('json' or 'csv').
 
         Returns:
-            A dictionary with the JSON response from the server, or None if all retries fail.
-
-        Raises:
-            RuntimeError: If a non-transient HTTP error occurs or retries are exhausted.
+            - A dictionary if format is 'json'.
+            - A raw string if format is 'csv'.
+            - None if all retries fail.
         """
+        mime_types = {
+            'json': 'application/sparql-results+json',
+            'csv': 'text/csv'
+        }
+        if format not in mime_types:
+            raise ValueError(f"Unsupported format '{format}'. Please use 'json' or 'csv'.")
+
+        # Dynamically set the Accept header for this specific request
+        request_headers = {**self.headers, "Accept": mime_types[format]}
+
         params = {"query": sparql}
-        
-        # Use POST for long queries to avoid URL length limits
-        is_post = use_post or len(sparql) > 2000
+        is_post = use_post or len(sparql) > 4000
 
         for attempt in range(self.max_429_retries + 1):
             try:
                 if is_post:
-                    response = self.session.post(self.endpoint, data=params, headers=self.headers, timeout=timeout)
+                    response = self.session.post(self.endpoint, data=params, headers=request_headers, timeout=timeout)
                 else:
-                    response = self.session.get(self.endpoint, params=params, headers=self.headers, timeout=timeout)
+                    response = self.session.get(self.endpoint, params=params, headers=request_headers, timeout=timeout)
 
                 if response.ok:
-                    return response.json()
+                    # Return data based on the requested format
+                    if format == 'json':
+                        return response.json()
+                    else: # 'csv' or other text-based formats
+                        return response.text
 
                 if response.status_code == 429:
                     retry_after = int(response.headers.get("Retry-After", 10))
@@ -98,10 +113,10 @@ class WikidataFetcher:
                         continue
                     else:
                         raise RuntimeError(f"Maximum retries ({self.max_429_retries}) exceeded for 429 responses.")
-                
+
                 response.raise_for_status()
 
             except requests.RequestException as e:
                 raise RuntimeError(f"A network-level request failed after retries: {e}") from e
-        
+
         return None
