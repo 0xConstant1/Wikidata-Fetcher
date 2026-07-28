@@ -1,11 +1,13 @@
 
 import time
 import logging
-from typing import Dict, Any, Optional, Union
+from typing import Callable, Dict, Any, Optional, Union
 
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
+
+from validate import CsvValidationError
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +23,9 @@ class WikidataFetcher:
         endpoint: str = "https://query.wikidata.org/sparql",
         max_retries: int = 5,
         backoff_factor: float = 0.5,
-        max_429_retries: int = 3
+        max_429_retries: int = 3,
+        max_validation_retries: int = 2,
+        validation_backoff: float = 30.0
     ):
         """
         Initializes the WikidataClient.
@@ -33,6 +37,11 @@ class WikidataFetcher:
             max_retries (int): Max retries for transient server errors (5xx).
             backoff_factor (float): Backoff factor for retrying 5xx errors.
             max_429_retries (int): Max retries for handling 429 (Too Many Requests) errors.
+            max_validation_retries (int): Max retries when the body arrives as a
+                                          200 but fails validation, which is how a
+                                          mid-stream query timeout presents itself.
+            validation_backoff (float): Seconds to wait before the first
+                                        validation retry; doubled each attempt.
         """
         if not user_agent or "python-requests" in user_agent.lower():
             raise ValueError("A descriptive User-Agent is required per Wikidata's policy. "
@@ -44,6 +53,8 @@ class WikidataFetcher:
             "User-Agent": user_agent
         }
         self.max_429_retries = max_429_retries
+        self.max_validation_retries = max_validation_retries
+        self.validation_backoff = validation_backoff
 
         # Configure retries for transient server errors (5xx)
         retry_strategy = Retry(
@@ -61,7 +72,8 @@ class WikidataFetcher:
         sparql: str,
         use_post: bool = False,
         timeout: int = 70,
-        format: str = 'json'
+        format: str = 'json',
+        validator: Optional[Callable[[str], Any]] = None
     ) -> Union[Optional[Dict[str, Any]], str]:
         """
         Executes a SPARQL query and handles rate limiting.
@@ -71,6 +83,11 @@ class WikidataFetcher:
             use_post (bool): If True, forces the use of POST.
             timeout (int): The request timeout in seconds.
             format (str): The desired response format ('json' or 'csv').
+            validator (Optional[Callable]): Called with the response body before
+                it is returned. It must raise CsvValidationError if the body is
+                not a complete result set. A 200 is not evidence of success here:
+                the endpoint streams results and appends its error report to a
+                body whose status line was already sent.
 
         Returns:
             - A dictionary if format is 'json'.
@@ -90,7 +107,11 @@ class WikidataFetcher:
         params = {"query": sparql}
         is_post = use_post or len(sparql) > 4000
 
-        for attempt in range(self.max_429_retries + 1):
+        retries_429 = 0
+        retries_validation = 0
+        max_attempts = self.max_429_retries + self.max_validation_retries + 1
+
+        for _ in range(max_attempts):
             try:
                 if is_post:
                     response = self.session.post(self.endpoint, data=params, headers=request_headers, timeout=timeout)
@@ -101,18 +122,42 @@ class WikidataFetcher:
                     # Return data based on the requested format
                     if format == 'json':
                         return response.json()
-                    else: # 'csv' or other text-based formats
-                        return response.text
+
+                    # 'csv' or other text-based formats
+                    body = response.text
+                    if validator is None:
+                        return body
+
+                    try:
+                        validator(body)
+                    except CsvValidationError as e:
+                        retries_validation += 1
+                        if retries_validation > self.max_validation_retries:
+                            raise RuntimeError(
+                                f"Response failed validation after "
+                                f"{self.max_validation_retries} retries: {e}"
+                            ) from e
+
+                        wait = self.validation_backoff * (2 ** (retries_validation - 1))
+                        log.warning(f"Response validation failed: {e} "
+                                    f"Waiting {wait:.0f} seconds before retry "
+                                    f"{retries_validation}/{self.max_validation_retries}.")
+                        time.sleep(wait)
+                        continue
+
+                    return body
 
                 if response.status_code == 429:
                     retry_after = int(response.headers.get("Retry-After", 10))
-                    log.warning(f"Received HTTP 429 (Too Many Requests). "
-                                f"Waiting {retry_after} seconds before retry {attempt + 1}/{self.max_429_retries}.")
-                    if attempt < self.max_429_retries:
-                        time.sleep(retry_after)
-                        continue
-                    else:
+                    retries_429 += 1
+                    if retries_429 > self.max_429_retries:
                         raise RuntimeError(f"Maximum retries ({self.max_429_retries}) exceeded for 429 responses.")
+
+                    log.warning(f"Received HTTP 429 (Too Many Requests). "
+                                f"Waiting {retry_after} seconds before retry "
+                                f"{retries_429}/{self.max_429_retries}.")
+                    time.sleep(retry_after)
+                    continue
 
                 response.raise_for_status()
 

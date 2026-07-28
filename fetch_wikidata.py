@@ -1,7 +1,10 @@
 import json
 import logging
 import os
+from functools import partial
+
 from client import WikidataFetcher
+from validate import sanitize_ids, validate_sparql_csv
 
 # --- Configuration ---
 # Set up logging
@@ -57,13 +60,15 @@ QUERIES_TO_RUN = [
         "name": "Movie Mappings",
         "query": MOVIE_QUERY,
         "output_file": "data/movie_mappings.csv",
-        "format": "csv"
+        "format": "csv",
+        "columns": ["imdbId", "tvdbId", "tmdbId"]
     },
     {
         "name": "TV Mappings",
         "query": TV_QUERY,
         "output_file": "data/tv_mappings.csv",
-        "format": "csv"
+        "format": "csv",
+        "columns": ["imdbId", "tvdbId", "tmdbId", "tvmazeId"]
     }
 ]
 
@@ -86,13 +91,26 @@ def main():
         
         logging.info(f"--- Starting task: {task_name} (format: {task_format}) ---")
         
+        # The result is validated before it is written, so a truncated response
+        # never reaches data/ and never gets committed.
+        validator = None
+        if task_format == 'csv':
+            validator = partial(validate_sparql_csv, expected_columns=task["columns"])
+
         try:
-            results = client.query(task["query"], use_post=True, format=task_format)
-            
+            results = client.query(
+                task["query"], use_post=True, format=task_format, validator=validator
+            )
+
             if results:
                 logging.info(f"Successfully fetched data for {task_name}.")
-                
-                with open(output_path, 'w', encoding='utf-8') as f:
+
+                # The response is intact; drop values that are not valid IDs for
+                # their provider before publishing.
+                if task_format == 'csv':
+                    results = sanitize_ids(results).csv
+
+                with open(output_path, 'w', encoding='utf-8', newline='') as f:
                     if task_format == 'csv':
                         # If it's CSV, the result is a string. Just write it.
                         f.write(results)
@@ -106,6 +124,7 @@ def main():
 
         except RuntimeError as e:
             logging.error(f"An error occurred during the '{task_name}' task: {e}")
+            logging.error(f"{output_path} was left unchanged.")
             exit(1)
         
         logging.info(f"--- Finished task: {task_name} ---\n")
